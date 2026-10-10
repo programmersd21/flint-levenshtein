@@ -1,0 +1,261 @@
+# levenshtein -- edit distance and fuzzy matching for Flint.
+#
+# Strings in Flint are byte sequences. These functions deliberately use
+# byte-level distance, matching len() and string indexing in the runtime.
+#
+# Public API:
+#   distance(a, b)                  exact Levenshtein distance
+#   distance_bounded(a, b, limit)   distance, or limit + 1 if over limit
+#   similarity(a, b)                normalized score in [0, 1]
+#   closest(query, candidates, k)    top k candidates, nearest first
+#
+# No native extensions or third-party dependencies.
+
+fn min2(a, b) {
+    if a < b {
+        return a
+    }
+    return b
+}
+
+fn min3(a, b, c) {
+    return min2(min2(a, b), c)
+}
+
+fn max2(a, b) {
+    if a > b {
+        return a
+    }
+    return b
+}
+
+fn abs_diff(a, b) {
+    if a > b {
+        return a - b
+    }
+    return b - a
+}
+
+# Build a list containing n copies of value.
+fn filled(n, value) {
+    let out = []
+    let i = 0
+    while i < n {
+        push(out, value)
+        i += 1
+    }
+    return out
+}
+
+# Return the minimum number of byte insertions, deletions, and substitutions
+# needed to transform a into b.
+#
+# Time: O(m*n). Auxiliary space: O(min(m, n)).
+export fn distance(a, b) {
+    let left = a
+    let right = b
+    let m = len(left)
+    let n = len(right)
+
+    if m == 0 {
+        return n
+    }
+    if n == 0 {
+        return m
+    }
+
+    # Keep the row width as small as possible.
+    if n > m {
+        let old_left = left
+        left = right
+        right = old_left
+        let old_m = m
+        m = n
+        n = old_m
+    }
+
+    let previous = []
+    let j = 0
+    while j <= n {
+        push(previous, j)
+        j += 1
+    }
+
+    let i = 1
+    while i <= m {
+        let current = filled(n + 1, 0)
+        current[0] = i
+        j = 1
+
+        while j <= n {
+            let cost = 0
+            if left[i - 1] != right[j - 1] {
+                cost = 1
+            }
+
+            let deletion = previous[j] + 1
+            let insertion = current[j - 1] + 1
+            let substitution = previous[j - 1] + cost
+            current[j] = min3(deletion, insertion, substitution)
+            j += 1
+        }
+
+        previous = current
+        i += 1
+    }
+
+    return previous[n]
+}
+
+# Compute edit distance within a threshold.
+#
+# If the true distance is greater than limit, return limit + 1. Negative
+# limits return -1. The diagonal band avoids evaluating cells that cannot
+# possibly produce a result within the requested threshold.
+export fn distance_bounded(a, b, limit) {
+    if limit < 0 {
+        return -1
+    }
+
+    let left = a
+    let right = b
+    let m = len(left)
+    let n = len(right)
+    let cap = limit + 1
+
+    if abs_diff(m, n) > limit {
+        return cap
+    }
+    if m == 0 {
+        if n <= limit {
+            return n
+        }
+        return cap
+    }
+    if n == 0 {
+        if m <= limit {
+            return m
+        }
+        return cap
+    }
+
+    if n > m {
+        let old_left = left
+        left = right
+        right = old_left
+        let old_m = m
+        m = n
+        n = old_m
+    }
+
+    let previous = []
+    let j = 0
+    while j <= n {
+        if j <= limit {
+            push(previous, j)
+        } else {
+            push(previous, cap)
+        }
+        j += 1
+    }
+
+    let i = 1
+    while i <= m {
+        let current = filled(n + 1, cap)
+        if i <= limit {
+            current[0] = i
+        }
+
+        let start = max2(1, i - limit)
+        let end = min2(n, i + limit)
+        j = start
+
+        while j <= end {
+            let cost = 0
+            if left[i - 1] != right[j - 1] {
+                cost = 1
+            }
+
+            let deletion = min2(cap, previous[j] + 1)
+            let insertion = min2(cap, current[j - 1] + 1)
+            let substitution = min2(cap, previous[j - 1] + cost)
+            current[j] = min3(deletion, insertion, substitution)
+            j += 1
+        }
+
+        let row_min = current[0]
+        j = 1
+        while j <= n {
+            if current[j] < row_min {
+                # Keep row_min as the best value in this row.
+                # Reassigning is supported by Flint's mutable local bindings.
+                row_min = current[j]
+            }
+            j += 1
+        }
+
+        if row_min > limit {
+            return cap
+        }
+
+        previous = current
+        i += 1
+    }
+
+    if previous[n] > limit {
+        return cap
+    }
+    return previous[n]
+}
+
+# Return a normalized similarity score between 0.0 and 1.0.
+# Two empty strings are identical and therefore score 1.0.
+export fn similarity(a, b) {
+    let longest = max2(len(a), len(b))
+    if longest == 0 {
+        return 1
+    }
+    return 1 - (distance(a, b) / longest)
+}
+
+# Return up to k candidate records, sorted by ascending edit distance.
+# Each record has: value, distance, similarity.
+# Equal-distance candidates retain their original input order.
+export fn closest(query, candidates, k) {
+    let scored = []
+
+    for candidate in candidates {
+        let d = distance(query, candidate)
+        push(scored, {
+                value: candidate,
+                distance: d,
+                similarity: similarity(query, candidate),
+        })
+    }
+
+    let out = []
+    let wanted = k
+    if wanted < 0 {
+        wanted = 0
+    }
+    if wanted > len(scored) {
+        wanted = len(scored)
+    }
+
+    let count = 0
+    while count < wanted {
+        let best = 0
+        let i = 1
+        while i < len(scored) {
+            if scored[i].distance < scored[best].distance {
+                best = i
+            }
+            i += 1
+        }
+
+        push(out, remove(scored, best))
+        count += 1
+    }
+
+    return out
+}
