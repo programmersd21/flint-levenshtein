@@ -1,0 +1,34 @@
+import test
+import "../levenshtein.fl" as levenshtein
+
+test.eq(levenshtein.distance("", ""), 0, "empty strings")
+test.eq(levenshtein.distance("", "flint"), 5, "empty left string")
+test.eq(levenshtein.distance("flint", ""), 5, "empty right string")
+test.eq(levenshtein.distance("same", "same"), 0, "identical strings")
+test.eq(levenshtein.distance("kitten", "sitting"), 3, "classic example")
+test.eq(levenshtein.distance("flaw", "lawn"), 2, "two edits")
+test.eq(levenshtein.distance("gumbo", "gambol"), 2, "insert and substitute")
+test.eq(levenshtein.distance("abc", "xyz"), 3, "all substitutions")
+test.eq(levenshtein.distance("a", "ab"), 1, "single insertion")
+test.eq(levenshtein.distance("ab", "a"), 1, "single deletion")
+
+test.eq(levenshtein.distance_bounded("kitten", "sitting", 3), 3, "bounded exact")
+test.eq(levenshtein.distance_bounded("kitten", "sitting", 2), 3, "bounded over limit")
+test.eq(levenshtein.distance_bounded("same", "same", 0), 0, "zero limit exact")
+test.eq(levenshtein.distance_bounded("abc", "xyz", 0), 1, "zero limit over limit")
+test.eq(levenshtein.distance_bounded("abc", "a", 1), 2, "length difference exceeds limit")
+test.eq(levenshtein.distance_bounded("abc", "a", -1), -1, "negative limit")
+
+test.eq(levenshtein.similarity("", ""), 1, "empty similarity")
+test.eq(levenshtein.similarity("same", "same"), 1, "identical similarity")
+test.eq(levenshtein.similarity("kitten", "sitting"), 1 - (3 / 7), "normalized similarity")
+
+let matches = levenshtein.closest("flnt", ["flint", "float", "print", "python"], 3)
+test.eq(len(matches), 3, "closest count")
+test.eq(matches[0].value, "flint", "closest first result")
+test.eq(matches[0].distance, 1, "closest first distance")
+test.eq(matches[1].value, "float", "stable second result")
+test.eq(len(levenshtein.closest("x", ["a", "b"], 0)), 0, "zero results")
+test.eq(len(levenshtein.closest("x", ["a"], 10)), 1, "result count is clamped")
+
+test.finish()

@@ -1,0 +1,19 @@
+import "../levenshtein.fl"
+
+let words = [
+    "flint",
+    "flow",
+    "float",
+    "print",
+    "python",
+    "rust",
+    "string",
+]
+
+let query = input("word: ")
+let matches = levenshtein.closest(query, words, 3)
+
+print("\nclosest matches:")
+for m in matches {
+    print("  " + m.value + "  distance=" + str(m.distance) + "  similarity=" + str(m.similarity))
+}
