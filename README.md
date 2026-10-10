@@ -14,7 +14,7 @@ No C extensions. No Rust backend. Just Flint source.
 
 ## Requirements
 
-Flint **0.13.2 or newer**.
+Flint **0.14.0 or newer**.
 
 ## Install as a package
 
